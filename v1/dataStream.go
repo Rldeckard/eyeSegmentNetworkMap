@@ -5,45 +5,30 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"github.com/Jeffail/gabs/v2"
-	"github.com/cheggaaa/pb/v3"
-	"github.com/infosecwatchman/eyeSegmentAPI/eyeSegmentAPI"
-	"golang.org/x/exp/slices"
 	"io"
 	"log"
-	"regexp"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Jeffail/gabs/v2"
+	"github.com/cheggaaa/pb/v3"
+	"github.com/infosecwatchman/eyeSegmentAPI/eyeSegmentAPI"
+	"golang.org/x/exp/slices"
 )
-
-type edge struct {
-	num         int
-	From        string        `json:"from"`
-	To          string        `json:"to"`
-	ID          string        `json:"id"`
-	Connections []connectData `json:"connections"`
-}
-
-type connectData struct {
-	NumOfConnections int    `json:"#Connections"`
-	First_Seen       string `json:"First_Seen"`
-	Last_Seen        string `json:"Last_Seen"`
-	Port             int    `json:"Port"`
-	Protocol         string `json:"Protocol"`
-	Service_Name     string `json:"Service_Name"`
-}
 
 func DataStream() string {
 	log.Println("Running DataStream")
-	MatrixData := gabs.New()
 	dataContainer, err := gabs.ParseJSON(eyeSegmentAPI.GetMatrixData())
 	if err != nil {
 		log.Println(err)
 	}
 	var columnNamesMaster []string
 	var concatenatedData [][]string
+	var jsonMatrix string
+	start := time.Now()
 	if dataContainer.ExistsP("data.0.srcZone") {
 		waitgroup := sync.WaitGroup{}
 		for count, data := range dataContainer.S("data").Children() {
@@ -80,7 +65,9 @@ func DataStream() string {
 			}(data, count)
 		}
 		waitgroup.Wait()
+		fmt.Printf("Process Data from API: %s\n", time.Since(start))
 		fmt.Println(columnNamesMaster)
+		start = time.Now()
 		bar := pb.StartNew(len(dataContainer.S("data").Children())).SetTemplate(pb.Simple).SetRefreshRate(100 * time.Millisecond)
 		for count, data := range dataContainer.S("data").Children() {
 			waitgroup.Add(1)
@@ -117,6 +104,7 @@ func DataStream() string {
 			}
 			time.Sleep(5 * time.Millisecond)
 		}
+		fmt.Printf("Get Column Names from Data: %s\n", time.Since(start))
 		var buffer bytes.Buffer
 		/*
 			fmt.Println("Creating file.")
@@ -153,13 +141,13 @@ func DataStream() string {
 			panic(err)
 		}
 		start := time.Now()
-		MatrixData = CSVtoJSON(strings.NewReader(buffer.String()))
+		jsonMatrix = CSVtoJSON(strings.NewReader(buffer.String()))
 		fmt.Printf("Converting JSON: %s\n", time.Since(start))
 	}
 	fmt.Println("exiting Datastream function.")
 	//fmt.Println(MatrixData.String())
 
-	return strings.ReplaceAll(MatrixData.String(), `\"`, "")
+	return jsonMatrix
 }
 
 func trimQuote(s string) string {
@@ -172,159 +160,87 @@ func trimQuote(s string) string {
 	return s
 }
 
-func CSVtoJSON(importcsvdata io.Reader) *gabs.Container {
+type Conn struct {
+	SourceZone   string
+	SourceIP     string
+	SourceHost   string
+	DestZone     string
+	DestIP       string
+	DestPort     string
+	DestProtocol string
+	timestamp    string
+}
+
+type edge struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+type node struct {
+	ID string `json:"id"`
+}
+
+type connectData struct {
+	NumOfConnections int    `json:"#Connections"`
+	First_Seen       string `json:"First_Seen"`
+	Last_Seen        string `json:"Last_Seen"`
+	Port             int    `json:"Port"`
+	Protocol         string `json:"Protocol"`
+	Service_Name     string `json:"Service_Name"`
+}
+
+func CSVtoJSON(importcsvdata io.Reader) string {
 	csvdata := csv.NewReader(importcsvdata)
 	csvdata.FieldsPerRecord = -1
 	records, err := csvdata.ReadAll()
 	if err != nil {
 		log.Fatalln(err)
 	}
-	fulljson := gabs.New()
-	fulljson.Array("edges")
-	fulljson.Array("nodes")
-	var edges []edge
-	var headers []string
-	waitgroup := sync.WaitGroup{}
+
+	var nodeList node
+	var edgeList edge
+	nodeMap := make(map[string]string)
+	edgeMap := make(map[string]string)
+	var edgeGroup []edge
+	var nodeGroup []node
+	fulljson := make(map[string]any)
 	for rownum, row := range records {
-		//fmt.Printf("%d: %s\n", row, record)
-		if rownum == 0 {
-			headers = row
-		} else {
-			jsonSRCNodePart := gabs.New()
-			jsonDSTNodePart := gabs.New()
-			jsonEdgePart := gabs.New()
-			connectionData := gabs.New()
-			connectionData.Array("connectionData")
-			for fieldnum, field := range row {
-				tempsrcjson := gabs.New()
-				tempdstjson := gabs.New()
-				for columnnum, column := range headers {
-					waitgroup.Add(1)
-					go func(columnnum int, column string, headers []string) {
-						var m sync.Mutex
-						defer waitgroup.Done()
-						if columnnum == fieldnum {
-							if strings.Contains(column, "Source") {
-								if !strings.Contains(column, "IP") || !strings.Contains(column, "DNS") {
-									m.Lock()
-									tempsrcjson.Set(field, strings.ReplaceAll(column, "Source_", ""))
-									m.Unlock()
-								}
-							}
-							if strings.Contains(column, "Destination") {
-								if !strings.Contains(column, "IP") || !strings.Contains(column, "DNS") {
-									m.Lock()
-									tempdstjson.Set(field, strings.ReplaceAll(column, "Destination_", ""))
-									m.Unlock()
-								}
-							}
-						}
-					}(columnnum, column, headers)
-				}
-				for columnnum, column := range headers {
-					waitgroup.Add(1)
-					go func(columnnum int, column string, headers []string) {
-						var m sync.Mutex
-						defer waitgroup.Done()
-						if columnnum == fieldnum {
-							if column == "Source_IP" {
-								regex, _ := regexp.Compile(fmt.Sprintf(`"id":"%s"`, field))
-								m.Lock()
-								if !regex.MatchString(fulljson.Search("nodes").String()) {
-									jsonDSTNodePart.Set(field, "id")
-								}
-								m.Unlock()
-							}
-							if column == "Destination_IP" {
-								regex, _ := regexp.Compile(fmt.Sprintf(`"id":"%s"`, field))
-								m.Lock()
-								if !regex.MatchString(fulljson.Search("nodes").String()) {
-									jsonSRCNodePart.Set(field, "id")
-								}
-								m.Unlock()
-							}
-							if column == "Source_IP" {
-								m.Lock()
-								jsonEdgePart.Set(field, "from")
-								m.Unlock()
-							}
-							if column == "Destination_IP" {
-								m.Lock()
-								jsonEdgePart.Set(field, "to")
-								m.Unlock()
-							}
-							if !strings.Contains(column, "Destination") && !strings.Contains(column, "Source") {
-								m.Lock()
-								jsonEdgePart.Set(field, column)
-								m.Unlock()
-							}
+		//assign value to key to make a list of unique values(keys are unique).
+		//don't use slice/string contains here as it adds several seconds of delay.
+		edgeMap[row[4]] = row[1]
+		nodeMap[row[1]] = "Unused"
+		nodeMap[row[4]] = "Unused"
 
-						}
-					}(columnnum, column, headers)
-				}
-				waitgroup.Wait()
-				jsonDSTNodePart.Merge(tempsrcjson)
-				jsonSRCNodePart.Merge(tempdstjson)
-			}
-			from := jsonEdgePart.S("from").Data()
-			to := jsonEdgePart.S("to").Data()
-			id := fmt.Sprintf("%s%s", jsonEdgePart.S("to").Data(), jsonEdgePart.S("from").Data())
-
-			connectionData.Set(from, "from")
-			connectionData.Set(to, "to")
-			connectionData.Set(id, "id")
-			jsonEdgePart.Delete("from")
-			jsonEdgePart.Delete("to")
-			connectionData.ArrayAppend(jsonEdgePart, "connectionData")
-
-			regex, _ := regexp.Compile(`"id"`)
-			if regex.MatchString(jsonSRCNodePart.String()) {
-				fulljson.ArrayAppend(jsonSRCNodePart, "nodes")
-			}
-			if regex.MatchString(jsonDSTNodePart.String()) {
-				fulljson.ArrayAppend(jsonDSTNodePart, "nodes")
-			}
-
-			IdRegex, _ := regexp.Compile(fmt.Sprintf(`"id":"%s"`, id))
-			compiledJson, _ := json.Marshal(edges)
-			if !IdRegex.MatchString(string(compiledJson)) {
-				var newedge edge
-				newedge.ID = trimQuote(connectionData.S("id").String())
-				newedge.From = trimQuote(connectionData.S("from").String())
-				newedge.To = trimQuote(connectionData.S("to").String())
-				NumofConnections, _ := strconv.Atoi(trimQuote(jsonEdgePart.S("#Connections").String()))
-				port, _ := strconv.Atoi(trimQuote(jsonEdgePart.S("Port").String()))
-				newedge.Connections = append(newedge.Connections, connectData{
-					NumOfConnections: NumofConnections,
-					First_Seen:       trimQuote(jsonEdgePart.S("First_Seen").String()),
-					Last_Seen:        trimQuote(jsonEdgePart.S("Last_Seen").String()),
-					Port:             port,
-					Protocol:         trimQuote(jsonEdgePart.S("Protocol").String()),
-					Service_Name:     trimQuote(jsonEdgePart.S("Service_Name").String()),
-				})
-				edges = append(edges, newedge)
-			} else {
-				for edgeID, edge := range edges {
-					if edge.ID == id {
-						var newConnection connectData
-						NumofConnections, _ := strconv.Atoi(trimQuote(jsonEdgePart.S("#Connections").String()))
-						port, _ := strconv.Atoi(trimQuote(jsonEdgePart.S("Port").String()))
-						newConnection = connectData{
-							NumOfConnections: NumofConnections,
-							First_Seen:       trimQuote(jsonEdgePart.S("First_Seen").String()),
-							Last_Seen:        trimQuote(jsonEdgePart.S("Last_Seen").String()),
-							Port:             port,
-							Protocol:         trimQuote(jsonEdgePart.S("Protocol").String()),
-							Service_Name:     trimQuote(jsonEdgePart.S("Service_Name").String()),
-						}
-						edges[edgeID].Connections = append(edges[edgeID].Connections, newConnection)
-					}
-				}
-			}
+		/*
+			conn.SourceZone = row[0]
+			conn.SourceIP = row[1]
+			conn.SourceHost = row[2]
+			conn.DestZone = row[3]
+			conn.DestIP = row[4]
+			conn.DestPort = row[5]
+			conn.DestProtocol = row[6]
+			conn.timestamp = row[9]
+			nodeList[rownum] = conn
+		*/
+		if rownum > 2000 {
+			break
 		}
+
 	}
-	jsonByte, _ := json.Marshal(edges)
-	compiledJson, _ := gabs.ParseJSON(jsonByte)
-	fulljson.Set(compiledJson, "edges")
-	return fulljson
+	//convert unique keys to struct for JSON prep. No delay, 4ms
+	for to, from := range edgeMap {
+		edgeList.From = from
+		edgeList.To = to
+		edgeGroup = append(edgeGroup, edgeList)
+	}
+	for id, _ := range nodeMap {
+		nodeList.ID = id
+		nodeGroup = append(nodeGroup, nodeList)
+	}
+	fulljson["nodes"] = nodeGroup
+	fulljson["edges"] = edgeGroup
+
+	jBytes, _ := json.Marshal(fulljson)
+	os.WriteFile("export.json", jBytes, 0644)
+	return string(jBytes)
 }

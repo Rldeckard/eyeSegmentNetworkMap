@@ -1,3 +1,4 @@
+
 <html>
 <head>
   <style type="text/css">
@@ -6,6 +7,7 @@
       height: 100%;
       margin: 0;
       padding: 0;
+      font-size: 11px;
     }
     #checkbox, #timeFilter {
       position: relative;
@@ -15,7 +17,7 @@
       display: inline-block;
       float: left;
       top: 5px;
-      font: 13px "Arial Black";
+      font-family: "Arial Black";
     }
     #contain {
       position: relative;
@@ -38,8 +40,8 @@
     }
     form {
       position: relative;
-      height: 44px;
-      margin-top: 30px;
+      height: 30px;
+      margin-top: 15px;
       padding-left: 20px;
       padding-right: 20px;
       border-radius: 5px;
@@ -48,14 +50,14 @@
     }
     #query {
       all: unset;
-      font: 16px "Arial Black";
+      font: 12px "Arial Black";
       height: 100%;
       width: 100%;
       position: relative;
       z-index: 3;
       border: 1px solid gray;
       border-radius: 3px;
-      padding: 5px;
+      padding-left: 5px;
     }
 
     ::placeholder {
@@ -577,7 +579,7 @@
       edges.hovered(hoveredConfig);
       edges.selected(selectedConfig);
 
-
+      /*
       //console.log(this.getData("from")+'on Test '+this.getData("Port"))
       chart.nodes().tooltip().useHtml(true);
       chart.nodes().tooltip().format(function (){
@@ -603,9 +605,11 @@
         format = format + '<br />'+zones
         return format
       });
+      
       chart.nodes().tooltip().hideDelay(1000);
       chart.edges().tooltip().useHtml(true);
       chart.interactivity().hoverGap(30);
+      
       var tooltipConfig = {
         title: true,
         separator: true,
@@ -622,7 +626,8 @@
         });
         return format
       });
-
+      */
+      
 
 
 

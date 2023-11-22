@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/Jeffail/gabs/v2 v2.7.0
 	github.com/cheggaaa/pb/v3 v3.1.4
+	github.com/fatih/structs v1.1.0
 	github.com/gorilla/mux v1.8.0
 	github.com/infosecwatchman/eyeSegmentAPI/eyeSegmentAPI v0.0.0-20230606135452-189718e2d722
 	golang.org/x/exp v0.0.0-20220827204233-334a2380cb91

@@ -81,7 +81,18 @@ func basicAuth(next http.HandlerFunc) http.HandlerFunc {
 func Query(w http.ResponseWriter, r *http.Request) {
 	var response Response
 	log.Println("starting query")
-	payload := `{"srcZones":["1srcZone"],"dstZones":["1dstZone"],"services":[],"isExclude":false,"protocols":[],"srcIp":"1srcIp","dstIp":"1dstIp","hasFilters":true,"filterEnabled":true,"confidence":null}`
+	payload := `{
+					"srcZones":["1srcZone"],
+					"dstZones":["1dstZone"],
+					"services":[],
+					"isExclude":false,
+					"protocols":[],
+					"srcIp":"1srcIp",
+					"dstIp":"1dstIp",
+					"hasFilters":true,
+					"filterEnabled":true,
+					"confidence":null
+				}`
 
 	body, _ := io.ReadAll(r.Body)
 	err := json.Unmarshal(body, &response)
